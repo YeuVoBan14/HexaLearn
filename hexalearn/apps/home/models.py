@@ -1,13 +1,16 @@
+import re
+from colorfield.fields import ColorField
+
 from django.db import models
 from django.contrib.auth.models import User
-from colorfield.fields import ColorField
-# Create your models here.
+
 
 LANGUAGE_CHOICES = [
     ("en", "English"),
     ("vi", "Vietnamese"),
     ("jp", "Japanese"),
 ]
+
 
 class Level(models.Model):
     name = models.CharField(max_length=50)
@@ -16,37 +19,73 @@ class Level(models.Model):
     difficulty_rank = models.PositiveSmallIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
-        app_label = 'home'
         ordering = ['difficulty_rank']
-        
-    def __str__ (self):
+
+    def __str__(self):
         return self.name
+    
+    def _generate_code(self):
+        # "N5 - Beginner" → "n5-beginner"
+        code = self.name.lower()
+        code = re.sub(r'[^\w\s-]', '', code)
+        code = re.sub(r'\s+', '-', code.strip())
+        return code
+
+
+class Source(models.Model):
+    name = models.CharField(max_length=50)
+    code = models.CharField(max_length=50, unique=True)
+    color = ColorField(default="#FFFFFF")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+    
+    def _generate_code(self):
+        code = self.name.lower()
+        code = re.sub(r'[^\w\s-]', '', code)
+        code = re.sub(r'\s+', '-', code.strip())
+        return code
+
+
+class MediaFile(models.Model):
+    file_url = models.TextField()
+    file_path = models.TextField()
+    file_name = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    alt_text = models.CharField(max_length=255, blank=True, null=True)
+    file_size = models.PositiveIntegerField(null=True, blank=True)
+    upload_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.file_name
+
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     address = models.CharField(max_length=255, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
-    profile_picure = models.ImageField(
-        upload_to="profile_pics/", blank=True, null=True
-    )
-    native_language = models.CharField(max_length=10, blank=True, choices=LANGUAGE_CHOICES )
+    profile_picture = models.ImageField(
+        upload_to="profile_pics/", blank=True, null=True)
+    native_language = models.CharField(
+        max_length=10, blank=True, choices=LANGUAGE_CHOICES)
     daily_ai_limit = models.PositiveIntegerField(default=20)
-    reading_level = models.ForeignKey(Level, on_delete=models.SET_NULL, null=True, blank=True)
+    reading_level = models.ForeignKey(
+        Level, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        app_label = 'home'
 
     def __str__(self):
         return self.user.username
-    
+
     @property
     def avatar_url(self):
-        if self.profile_picure:
-            return self.profile_picure.url
+        if self.profile_picture:
+            return self.profile_picture.url
         return None
