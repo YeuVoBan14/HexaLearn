@@ -1,6 +1,6 @@
 # apps/home/docs.py
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
-from .serializers import LevelSerializer, SourceSerializer, UserProfileSerializer
+from .serializers import AvatarSerializer, LevelSerializer, SourceSerializer, UserProfileSerializer, RegisterSerializer
 
 
 def level_schema():
@@ -150,6 +150,57 @@ def source_schema():
     )
 
 
+def avatar_upload_schema():
+    return extend_schema(
+        tags=["Home"],
+        summary="Upload or update profile avatar",
+        description="Upload a new profile picture for the authenticated user. The previous image will be deleted automatically.",
+        request={
+            "multipart/form-data": AvatarSerializer
+        },
+        responses={
+            200: AvatarSerializer,
+            400: OpenApiResponse(
+                description="Invalid file.",
+                examples={
+                    "example": {
+                        "profile_picture": ["Upload a valid image. The file you uploaded was either not an image or a corrupted image."]
+                    }
+                }
+            ),
+            401: OpenApiResponse(
+                description="Not logged in or invalid token.",
+                examples={
+                    "example": {
+                        "detail": "Authentication credentials were not provided."
+                    }
+                }
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Avatar Upload Request",
+                summary="Example of uploading avatar",
+                description="Send a multipart/form-data request with the image file in the 'profile_picture' field.",
+                value={
+                    "profile_picture": "(binary image file)"
+                },
+                request_only=True,
+                media_type="multipart/form-data",
+            ),
+            OpenApiExample(
+                "Avatar Upload Response",
+                summary="Example of avatar upload response",
+                value={
+                    "profile_picture": "https://res.cloudinary.com/dbokzq7zf/image/upload/hexalearn_profile_pics/avatar.jpg",
+                    "image_url": "https://res.cloudinary.com/dbokzq7zf/image/upload/hexalearn_profile_pics/avatar.jpg"
+                },
+                response_only=True,
+            ),
+        ]
+    )
+
+
 def user_profile_schema():
     return extend_schema(
         tags=["Home"],
@@ -215,9 +266,10 @@ def user_profile_schema():
 
 def delete_account_schema():
     return extend_schema(
-        tags=["User"],
+        tags=["Home"],
         summary="Delete user account",
         description="Soft delete the authenticated user's account.",
+        request=None,
         responses={
             200: OpenApiResponse(
                 description="Account deleted successfully.",
@@ -236,4 +288,62 @@ def delete_account_schema():
                 }
             ),
         }
+    )
+
+
+def register_schema():
+    return extend_schema(
+        tags=["Home"],
+        summary="Register new user",
+        description="Create a new user account with profile information.",
+        request=RegisterSerializer,
+        responses={
+            201: RegisterSerializer,
+            400: OpenApiResponse(
+                description="Invalid data.",
+                examples={
+                    "example": {
+                        "username": ["This field is required."],
+                        "email": ["Enter a valid email address."],
+                        "password": ["This field is required."],
+                        "confirm_password": ["Passwords do not match."]
+                    }
+                }
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Register Request",
+                summary="Example of registering a new user",
+                description="Provide user details to create an account",
+                value={
+                    "username": "newuser",
+                    "email": "user@example.com",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "password": "securepassword123",
+                    "confirm_password": "securepassword123",
+                    "phone_number": "+1234567890",
+                    "address": "123 Main St",
+                    "date_of_birth": "1990-01-01",
+                    "native_language": "en"
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Register Response",
+                summary="Example of registration response",
+                value={
+                    "username": "newuser",
+                    "email": "user@example.com",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "phone_number": "+1234567890",
+                    "address": "123 Main St",
+                    "date_of_birth": "1990-01-01",
+                    "native_language": "en"
+                },
+                response_only=True,
+            ),
+        ]
     )

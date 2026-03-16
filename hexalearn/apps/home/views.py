@@ -12,6 +12,8 @@ from .docs import *
 from .pagination import CustomPagination
 
 # Create your views here.
+
+
 @level_schema()
 class LevelViewSet(viewsets.ModelViewSet):
     queryset = Level.objects.all()
@@ -19,13 +21,15 @@ class LevelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminUser]
     pagination_class = CustomPagination
 
+
 @source_schema()
 class SourceViewSet(viewsets.ModelViewSet):
     queryset = Source.objects.all()
     serializer_class = SourceSerializer
     permission_classes = [IsAuthenticated, IsAdminUser]
     pagination_class = CustomPagination
-    
+
+
 @user_profile_schema()
 class UserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
@@ -46,19 +50,50 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
-    
+
+
+@avatar_upload_schema()
+class AvatarUploadView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = AvatarSerializer
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_object(self):
+        return self.request.user.profile
+
+    def post(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.profile_picture:
+            print("Deleting old profile picture:",
+                  instance.profile_picture.url)
+            instance.profile_picture.delete(save=False)
+
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+@register_schema()
 class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
 
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+
 @delete_account_schema()
-def delete_account(request):
-    profile = request.user.profile
-    profile.is_deleted = True
-    profile.save()
-    return Response(
-        {"detail": "Account has been deleted."},
-        status=status.HTTP_200_OK
-    )
+class DeleteAccountView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, *args, **kwargs):
+        profile = request.user.profile
+        profile.is_deleted = True
+        profile.save()
+        return Response(
+            {"detail": "Account has been deleted."},
+            status=status.HTTP_200_OK
+        )

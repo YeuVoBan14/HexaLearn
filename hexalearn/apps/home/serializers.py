@@ -1,6 +1,8 @@
 from .models import Level, Source, UserProfile
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from drf_spectacular.utils import extend_schema_field
+from typing import Optional
 
 
 class LevelSerializer(serializers.ModelSerializer):
@@ -47,7 +49,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'reading_level_name', 'reading_level_color',
         ]
 
-    def get_image_url(self, obj):
+    @extend_schema_field(str)
+    def get_image_url(self, obj) -> Optional[str]:
         request = self.context.get('request')
         if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
             return request.build_absolute_uri(obj.profile_picture.url)
@@ -60,10 +63,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 "Username has already been taken.")
         return value
 
-    def update(self, instance, validated_data):
-        if 'profile_picture' in validated_data and instance.profile_picture:
-            instance.profile_picture.delete(save=False)
-            
+    def update(self, instance, validated_data):    
+        
         user_data = validated_data.pop('user', {})
         if user_data:
             user = instance.user
@@ -78,8 +79,21 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         return instance
 
+class AvatarSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
 
-class RegisterSerializer(serializers.Serializer):
+    class Meta:
+        model = UserProfile
+        fields = ['profile_picture', 'image_url']
+
+    @extend_schema_field(str)
+    def get_image_url(self, obj) -> Optional[str]:
+        request = self.context.get('request')
+        if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
+            return request.build_absolute_uri(obj.profile_picture.url)
+        return None
+
+class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
 
@@ -107,12 +121,10 @@ class RegisterSerializer(serializers.Serializer):
             'date_of_birth':   validated_data.pop('date_of_birth', None),
             'native_language': validated_data.pop('native_language', ''),
         }
-
         validated_data.pop('confirm_password')
         user = User.objects.create_user(**validated_data)
-
-        # Signal đã tạo UserProfile rồi, chỉ cần update thêm data
-        profile = user.profile
+        
+        profile, _ = UserProfile.objects.get_or_create(user=user)
         for attr, value in profile_data.items():
             setattr(profile, attr, value)
         profile.save()
