@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     
     # local apps
     "apps.home",
+    "apps.deck",
     "apps.account",
 ]
 

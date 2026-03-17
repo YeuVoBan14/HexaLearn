@@ -2,4 +2,4 @@ from django.apps import AppConfig
 
 
 class DeckConfig(AppConfig):
-    name = "deck"
+    name = 'apps.deck'
