@@ -4,8 +4,19 @@ from django.db import models
 from django.contrib.auth.models import User
 from apps.home.models import Level, Source, MediaFile
 # Create your models here.
+class Folder(models.Model):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='folders')
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
 class Deck(models.Model):
     owner = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='decks', null=True)
+    folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, related_name='decks', null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     source = models.ForeignKey(Source, on_delete=models.SET_NULL, related_name='decks', null=True)
@@ -23,8 +34,8 @@ class Card(models.Model):
     back_text = models.TextField()
     hint = models.TextField(blank=True, null=True)
     
-    front_image = models.ImageField(upload_to="flashcard/", blank=True, null=True)
-    back_image = models.ImageField(upload_to="flashcard/", blank=True, null=True)
+    front_image = models.TextField(blank=True, null=True)  # lưu Cloudinary URL
+    back_image = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -33,7 +44,7 @@ class Card(models.Model):
    
 # repetition = 1 → interval = 1 days
 # repetition = 2 → interval = 6 days
-# repetition > 2 → interval = old_interval × ease_factor 
+# repetition > 2 → interval = old_interval * 2
 class StudyState(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='study_states')
     card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name='study_states')
