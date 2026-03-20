@@ -7,49 +7,34 @@ class DeckInFolderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Deck
         fields = ['id', 'title', 'is_public', 'created_at']
-        
+
+
 class FolderSerializer(serializers.ModelSerializer):
-    decks = DeckInFolderSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Folder
-        fields = ['id', 'name', 'description', 'created_at', 'updated_at', 'decks']
-        
-class FolderListSerializer(serializers.ModelSerializer):
-    total_decks = serializers.IntegerField(source='decks.count', read_only=True)
-
-    class Meta:
-        model = Folder
-        fields = ['id', 'name', 'description', 'total_decks', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class FolderDetailSerializer(serializers.ModelSerializer):
     decks = DeckInFolderSerializer(many=True, read_only=True)
     total_decks = serializers.IntegerField(source='decks.count', read_only=True)
 
     class Meta:
         model = Folder
         fields = ['id', 'name', 'description', 'total_decks', 'created_at', 'updated_at', 'decks']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'total_decks', 'created_at', 'updated_at']
 
-
-class FolderWriteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Folder
-        fields = ['id', 'name', 'description', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
+class DeckOverviewSerializer(serializers.Serializer):
+    folders = FolderSerializer(many=True)
+    unorganized_decks = DeckInFolderSerializer(many=True)
+    
 #DECK
-class CardGetSerializer(serializers.ModelSerializer):
+class CardSerializer(serializers.ModelSerializer):
+    front_image = serializers.URLField(required=False, allow_null=True, allow_blank=True)
+    back_image = serializers.URLField(required=False, allow_null=True, allow_blank=True)
+
     class Meta:
         model = Card
-        fields = ['id', 'front_text', 'back_text',
-                  'hint', 'front_image', 'back_image']
+        fields = ['id', 'front_text', 'back_text', 'hint', 'front_image', 'back_image']
+        read_only_fields = ['id']
 
 
 class DeckDetailSerializer(serializers.ModelSerializer):
-    cards = CardGetSerializer(many=True, read_only=True)
+    cards = CardSerializer(many=True, read_only=True)
     source_name = serializers.CharField(source='source.name', read_only=True)
     estimated_level_name = serializers.CharField(
         source='estimated_level.name', read_only=True)
@@ -66,22 +51,12 @@ class DeckDetailSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
             'cards',
         ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
         
 # CREATE DECK AND CARDS
-class CardCreateSerializer(serializers.ModelSerializer):
-    front_image = serializers.URLField(
-        required=False, allow_null=True, allow_blank=True)
-    back_image = serializers.URLField(
-        required=False, allow_null=True, allow_blank=True)
 
-    class Meta:
-        model = Card
-        fields = ['front_text', 'back_text',
-                  'hint', 'front_image', 'back_image']
-
-
-class DeckCreateSerialzier(serializers.ModelSerializer):
-    cards = CardCreateSerializer(many=True, write_only=True, required=False)
+class DeckCreateSerializer(serializers.ModelSerializer):
+    cards = CardSerializer(many=True, write_only=True, required=True)
 
     class Meta:
         model = Deck
@@ -93,8 +68,13 @@ class DeckCreateSerialzier(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def validate_cards(self, value):
+        if len(value) == 0:
+            raise serializers.ValidationError("Deck must have at least 1 card.")
+        return value
+    
     def create(self, validated_data):
-        cards_data = validated_data.pop('cards_input', [])
+        cards_data = validated_data.pop('cards', [])
         deck = Deck.objects.create(**validated_data)
         Card.objects.bulk_create([
             Card(deck=deck, **card_data) for card_data in cards_data
@@ -106,23 +86,5 @@ class DeckUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Deck
         fields = [
-            'title', 'description', 'is_public',
+            'title', 'description', 'is_public','folder',
         ]
-        
-# UPDATE EACH CARD IN DECK (FRONT_TEXT, BACK_TEXT, HINT, FRONT_IMAGE, BACK_IMAGE)
-class CardUpdateSerializer(serializers.ModelSerializer):
-    front_image = serializers.URLField(
-        required=False, allow_null=True, allow_blank=True)
-    back_image = serializers.URLField(
-        required=False, allow_null=True, allow_blank=True)
-
-    class Meta:
-        model = Card
-        fields = ['id', 'front_text', 'back_text',
-                  'hint', 'front_image', 'back_image']
-
-    def update(self, instance, validated_data):
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        return instance
