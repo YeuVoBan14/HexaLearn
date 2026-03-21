@@ -1,4 +1,6 @@
 from rest_framework import generics, permissions
+
+from .docs import upload_credential_schema
 from .serializers import UserSerializer, CustomTokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
@@ -24,6 +26,7 @@ class MeView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user
     
+@upload_credential_schema()
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_upload_credential(request):

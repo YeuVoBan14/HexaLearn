@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Deck, Card, Folder
+from .models import Deck, Card, Folder, StudyState
 
 #FOLDER
 
@@ -87,4 +87,21 @@ class DeckUpdateSerializer(serializers.ModelSerializer):
         model = Deck
         fields = [
             'title', 'description', 'is_public','folder',
+        ]
+
+class StudyStateSerializer(serializers.ModelSerializer):
+    card_front_text = serializers.CharField(source='card.front_text', read_only=True)
+    card_back_text = serializers.CharField(source='card.back_text', read_only=True)
+    class Meta:
+        model = StudyState
+        fields = [
+            'id', 'card',
+            'card_front_text', 'card_back_text',
+            'repetition', 'interval_days',
+            'last_reviewed', 'last_result',
+            'next_review', 'review_count',
+        ]
+        read_only_fields = [
+            'id', 'repetition', 'interval_days',
+            'last_reviewed', 'next_review', 'review_count',
         ]

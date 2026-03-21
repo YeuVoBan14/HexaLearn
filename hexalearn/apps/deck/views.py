@@ -1,6 +1,8 @@
 # apps/deck/views.py
 
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.utils import timezone
+from datetime import timedelta
 
 
 from django.shortcuts import get_object_or_404
@@ -21,13 +23,27 @@ from .serializers import (
     DeckOverviewSerializer,
     DeckUpdateSerializer,
     FolderSerializer,
-    # StudyStateSerializer,
+    StudyStateSerializer
+)
+from .docs import (
+    card_schema,
+    card_sync_schema,
+    deck_copy_schema,
+    deck_schema,
+    decks_in_progress_schema,
+    folder_overview_schema,
+    folder_schema,
+    study_session_schema,
+    study_stats_schema,
+    submit_review_schema,
 )
 
 
 # ─── FOLDER ─────────────────────────────────────────────────────────────────
 @extend_schema(tags=['Flashcard'])
+@folder_schema()
 class FolderViewSet(viewsets.ModelViewSet):
+    queryset = Folder.objects.none()
     permission_classes = [IsAuthenticated]
     pagination_class = CustomPagination
     serializer_class = FolderSerializer
@@ -50,6 +66,7 @@ class FolderViewSet(viewsets.ModelViewSet):
         kwargs['partial'] = True
         return self.update(request, *args, **kwargs)
 
+    @folder_overview_schema()
     @action(detail=False, methods=['get'], url_path='overview')
     def overview(self, request):
         folders = Folder.objects.filter(
@@ -68,8 +85,12 @@ class FolderViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.data)
 # ─── DECK ────────────────────────────────────────────────────────────────────
+
+
 @extend_schema(tags=['Flashcard'])
+@deck_schema()
 class DeckViewSet(viewsets.ModelViewSet):
+    queryset = Deck.objects.none()
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'patch', 'put', 'delete']
     pagination_class = CustomPagination
@@ -107,7 +128,6 @@ class DeckViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    
     def get_object(self):
         obj = super().get_object()
         if self.action in ['update', 'partial_update', 'destroy']:
@@ -117,13 +137,14 @@ class DeckViewSet(viewsets.ModelViewSet):
         return obj
 
     def perform_create(self, serializer):
-        source = Source.objects.filter(name__iexact='user').first()
+        source = Source.objects.filter(code__iexact='user').first()
         serializer.save(owner=self.request.user, source=source)
 
     def partial_update(self, request, *args, **kwargs):
         kwargs['partial'] = True
         return self.update(request, *args, **kwargs)
-    
+
+    @deck_copy_schema()
     @action(detail=True, methods=['post'], url_path='copy')
     def copy(self, request, pk=None):
         deck = get_object_or_404(Deck, pk=pk, is_public=True)
@@ -155,20 +176,25 @@ class DeckViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_201_CREATED)
 
 # ─── CARD ────────────────────────────────────────────────────────────────────
+
+
 @extend_schema(tags=['Flashcard'])
+@card_schema()
 class CardViewSet(viewsets.ModelViewSet):
+    queryset = Card.objects.none()
     permission_classes = [IsAuthenticated]
     # dont need pagination and get for card, because we will load all cards of a deck at once
     http_method_names = ['post', 'patch', 'put']
     serializer_class = CardSerializer
 
-    def get_object(self):
-        obj = super().get_object()
+    def get_queryset(self):
         if self.action in ['update', 'partial_update']:
-            if obj.deck.owner != self.request.user:
-                raise PermissionDenied(
-                    "You do not have permission to modify this card.")
-        return obj
+            return Card.objects.filter(deck__owner=self.request.user)
+        # các action khác → card của mình + card public
+        return Card.objects.filter(
+            Q(deck__owner=self.request.user) |
+            Q(deck__is_public=True)
+        )
 
     def list(self, request, *args, **kwargs):
         return Response(
@@ -187,6 +213,7 @@ class CardViewSet(viewsets.ModelViewSet):
         kwargs['partial'] = True
         return self.update(request, *args, **kwargs)
 
+    @card_sync_schema()
     @action(detail=False, methods=['post'], url_path='sync')
     def sync(self, request):
         deck_id = request.data.get('deck_id')
@@ -211,6 +238,13 @@ class CardViewSet(viewsets.ModelViewSet):
         deleted_count = 0
         if delete_ids:
             cards_to_delete = Card.objects.filter(pk__in=delete_ids, deck=deck)
+
+            if cards_to_delete.count() != len(delete_ids):
+                return Response(
+                    {"detail": "Some cards do not belong to this deck."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             deleted_count = cards_to_delete.count()
             cards_to_delete.delete()
 
@@ -240,59 +274,175 @@ class CardViewSet(viewsets.ModelViewSet):
 
 
 # ─── STUDY STATE ─────────────────────────────────────────────────────────────
+@decks_in_progress_schema()
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def decks_in_progress(request):
+    today = timezone.now().date()
 
-# @api_view(['GET'])
-# @permission_classes([IsAuthenticated])
-# def due_cards(request):
-#     """Lấy danh sách card cần ôn hôm nay"""
-#     from django.utils import timezone
-#     states = StudyState.objects.filter(
-#         user=request.user,
-#         next_review__lte=timezone.now().date()
-#     ).select_related('card', 'card__deck')
+    decks = Deck.objects.filter(
+        cards__study_states__user=request.user,
+    ).distinct().annotate(
+        total_cards=Count('cards', distinct=True),
+        studied_cards=Count(
+            'cards__study_states',
+            filter=Q(cards__study_states__user=request.user),
+            distinct=True
+        ),
+        due_today=Count(
+            'cards__study_states',
+            filter=Q(
+                cards__study_states__user=request.user,
+                cards__study_states__next_review__lte=today
+            ),
+            distinct=True
+        ),
+    )
 
-#     serializer = StudyStateSerializer(states, many=True)
-#     return Response(serializer.data)
+    data = [
+        {
+            "deck_id": deck.id,
+            "deck_title": deck.title,
+            "total_cards": deck.total_cards,
+            "studied": deck.studied,
+            "due_today": deck.due_today,
+            "progress_percent": round(deck.studied / deck.total_cards * 100) if deck.total_cards > 0 else 0,
+        }
+        for deck in decks
+    ]
+
+    return Response(data)
 
 
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-# def submit_review(request, card_id):
-#     """User submit kết quả ôn 1 card"""
-#     from datetime import timedelta
-#     from django.utils import timezone
+@study_session_schema()
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def study_session(request):
 
-#     result = request.data.get('result')  # True = nhớ, False = không nhớ
-#     if result is None:
-#         return Response(
-#             {"detail": "result is required."},
-#             status=status.HTTP_400_BAD_REQUEST
-#         )
+    deck_id = request.query_params.get('deck_id')
+    if not deck_id:
+        return Response(
+            {"detail": "deck_id is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
-#     card = get_object_or_404(Card, pk=card_id, deck__owner=request.user)
-#     state, _ = StudyState.objects.get_or_create(
-#         user=request.user,
-#         card=card,
-#     )
+    deck = get_object_or_404(Deck, pk=deck_id)
 
-#     # Tính interval mới theo SM-2 binary
-#     if result:
-#         if state.repetition == 0:
-#             state.interval_days = 1
-#         elif state.repetition == 1:
-#             state.interval_days = 6
-#         else:
-#             state.interval_days = state.interval_days * 2
-#         state.repetition += 1
-#     else:
-#         state.repetition = 0
-#         state.interval_days = 1
+    if not deck.is_public and deck.owner != request.user:
+        raise PermissionDenied(
+            "You do not have permission to access this deck.")
 
-#     state.next_review = timezone.now().date() + timedelta(days=state.interval_days)
-#     state.last_reviewed = timezone.now()
-#     state.last_result = result
-#     state.review_count += 1
-#     state.save()
+    today = timezone.now().date()
 
-#     serializer = StudyStateSerializer(state)
-#     return Response(serializer.data)
+    # studied cards and cards need to review today (next_review <= today)
+    review_states = StudyState.objects.filter(
+        user=request.user,
+        card__deck=deck,
+        next_review__lte=today,
+    ).select_related('card')
+
+    # new cards that have never been studied
+    studied_card_ids = StudyState.objects.filter(
+        user=request.user,
+        card__deck=deck,
+    ).values_list('card_id', flat=True)
+
+    new_cards = Card.objects.filter(
+        deck=deck
+    ).exclude(id__in=studied_card_ids)
+
+    return Response({
+        "deck_id": deck.id,
+        "deck_title": deck.title,
+        "new_cards": StudyStateSerializer(
+            # Wrap new_cards in StudyState objects with default values, so we can use the same serializer for both new cards and review cards
+            [StudyState(card=card, user=request.user) for card in new_cards],
+            many=True,
+        ).data,
+        "review_cards": StudyStateSerializer(review_states, many=True).data,
+        "total": new_cards.count() + review_states.count(),
+    })
+
+
+@submit_review_schema()
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_review(request, card_id):
+    result = request.data.get('result')
+    if result is None:
+        return Response(
+            {"detail": "result is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    card = get_object_or_404(Card, pk=card_id)
+
+    if not card.deck.is_public and card.deck.owner != request.user:
+        raise PermissionDenied(
+            "You do not have permission to access this card.")
+
+    today = timezone.now().date()
+
+    state, _ = StudyState.objects.get_or_create(
+        user=request.user,
+        card=card,
+        defaults={
+            'next_review': today,
+        }
+    )
+
+    if result:
+        if state.repetition == 0:
+            state.interval_days = 1
+        elif state.repetition == 2:
+            state.interval_days = 6
+        else:
+            state.interval_days *= 2
+        state.repetition += 1
+    else:
+        state.repetition = 0
+        state.interval_days = 1
+
+    state.next_review = today + timedelta(days=state.interval_days)
+    state.last_reviewed = timezone.now()
+    state.last_result = result
+    state.review_count += 1
+    state.save()
+
+    return Response(StudyStateSerializer(state).data)
+
+@study_stats_schema()
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def study_stats(request):
+    # get study state per deck
+    deck_id = request.query_params.get('deck_id')
+    if not deck_id:
+        return Response(
+            {"detail": "deck_id is required."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    deck = get_object_or_404(Deck, pk=deck_id)
+    today = timezone.now().date()
+    total_cards = deck.cards.count()
+
+    states = StudyState.objects.filter(
+        user=request.user,
+        card__deck=deck,
+    )
+
+    studied = states.count()
+    due_today = states.filter(next_review__lte=today).count()
+    # consider a card mastered if the user has successfully recalled it 5 times
+    mastered = states.filter(repetition__gte=5).count()
+
+    return Response({
+        "deck_id": deck.id,
+        "deck_title": deck.title,
+        "total_cards": total_cards,
+        "studied": studied,
+        "not_studied": total_cards - studied,
+        "due_today": due_today,
+        "mastered": mastered,
+    })

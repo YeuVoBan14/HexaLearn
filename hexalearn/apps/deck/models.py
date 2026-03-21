@@ -19,9 +19,9 @@ class Deck(models.Model):
     folder = models.ForeignKey(Folder, on_delete=models.SET_NULL, related_name='decks', null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    source = models.ForeignKey(Source, on_delete=models.SET_NULL, related_name='decks', null=True)
+    source = models.ForeignKey(Source, on_delete=models.SET_NULL, related_name='decks', null=True, blank=True)
     is_public = models.BooleanField(default=False)
-    estimated_level = models.ForeignKey(Level, on_delete=models.SET_NULL, related_name='decks', null=True)
+    estimated_level = models.ForeignKey(Level, on_delete=models.SET_NULL, related_name='decks', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -41,6 +41,15 @@ class Card(models.Model):
 
     def __str__(self):
         return f"Card in {self.deck.title}"
+
+'''   
+repetition: amount of times the user has successfully recalled this card
+1st: remember -> repetition = 1, interval = 1 day
+2nd: remember -> repetition = 2, interval = 6 days
+3rd: remember -> repetition = 3, interval = 12 days
+4th: not remember -> repetition = 0, interval = 1 day
+5th : remember -> repetition = 1, interval = 1 day
+'''
    
 # repetition = 1 → interval = 1 days
 # repetition = 2 → interval = 6 days
