@@ -1,9 +1,14 @@
-from .models import Level, Source, UserProfile
+from .models import Language, Level, Source, UserProfile
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_field
 from typing import Optional
 
+class LanguageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Language
+        fields = '__all__'
+        read_only_fields = ['id', 'code', 'created_at', 'updated_at']
 
 class LevelSerializer(serializers.ModelSerializer):
     class Meta:
@@ -26,7 +31,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(
         source='user.first_name', required=False)
     last_name = serializers.CharField(source='user.last_name', required=False)
-
+    native_language_name = serializers.CharField(
+        source='native_language.name', read_only=True)
     reading_level_name = serializers.CharField(
         source='reading_level.name', read_only=True)
     reading_level_color = serializers.CharField(
@@ -38,8 +44,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = [
             'user_id', 'username', 'email', 'first_name', 'last_name',
             'phone_number', 'address', 'date_of_birth',
-            'profile_picture', 'image_url',
-            'native_language', 'daily_ai_limit',
+            'profile_picture', 'image_url', 
+            'native_language', 'native_language_name', 'daily_ai_limit',
             'reading_level_name', 'reading_level_color',
             'created_at',
         ]
@@ -102,7 +108,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     address = serializers.CharField(
         max_length=255, required=False, allow_blank=True)
     date_of_birth = serializers.DateField(required=False)
-    native_language = serializers.CharField(max_length=10, required=False)
+    native_language = serializers.PrimaryKeyRelatedField(
+        queryset=Language.objects.all(), required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = User
@@ -119,7 +126,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'phone_number':    validated_data.pop('phone_number', ''),
             'address':         validated_data.pop('address', ''),
             'date_of_birth':   validated_data.pop('date_of_birth', None),
-            'native_language': validated_data.pop('native_language', ''),
+            'native_language': validated_data.pop('native_language', None),
         }
         validated_data.pop('confirm_password')
         user = User.objects.create_user(**validated_data)

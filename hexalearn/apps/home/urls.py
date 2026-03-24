@@ -1,13 +1,14 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from apps.home.views import LevelViewSet, SourceViewSet, UserProfileView, AvatarUploadView, RegisterView, DeleteAccountView
+from apps.home.views import LanguageViewSet, LevelViewSet, SourceViewSet, UserProfileView, AvatarUploadView, RegisterView, DeleteAccountView
 
 router = DefaultRouter()
 app_name = 'home'
 
 router.register('levels', LevelViewSet, basename='level')
 router.register('sources', SourceViewSet, basename='source')
+router.register('languages', LanguageViewSet, basename='language')
 
 urlpatterns = [
     path('v1/', include(router.urls)),

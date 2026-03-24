@@ -11,6 +11,25 @@ LANGUAGE_CHOICES = [
     ("jp", "Japanese"),
 ]
 
+class Language(models.Model):
+    name = models.CharField(max_length=50)
+    code = models.CharField(max_length=10, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+    
+    def save(self, *args, **kwargs):
+        if not self.code:
+            self.code = self._generate_code()
+        if Language.objects.exclude(pk=self.pk).filter(code=self.code).exists():
+            raise ValueError(f"Language with code '{self.code}' already exists.")
+        super().save(*args, **kwargs)
+        
+    def _generate_code(self):
+        # "English" → "en"
+        return self.name.lower()[:2]
 
 class Level(models.Model):
     name = models.CharField(max_length=50)
@@ -87,8 +106,7 @@ class UserProfile(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     profile_picture = models.ImageField(
         upload_to="hexalearn_profile_pics/", blank=True, null=True)
-    native_language = models.CharField(
-        max_length=10, blank=True, choices=LANGUAGE_CHOICES)
+    native_language = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True)
     daily_ai_limit = models.PositiveIntegerField(default=20)
     reading_level = models.ForeignKey(
         Level, on_delete=models.SET_NULL, null=True, blank=True)

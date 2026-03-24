@@ -1,6 +1,10 @@
 from django.contrib import admin
-from .models import Level, Source, UserProfile
+from .models import Language, Level, Source, UserProfile
 # Register your models here.
+
+class LanguageAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code')
+    search_fields = ('name', 'code')
 
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = ('user', 'native_language', 'daily_ai_limit', 'reading_level')
@@ -16,6 +20,7 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = ('name', 'code')
     search_fields = ('name', 'code')
     
+admin.site.register(Language, LanguageAdmin)
 admin.site.register(Level, LevelAdmin)
 admin.site.register(Source, SourceAdmin)
 admin.site.register(UserProfile, UserProfileAdmin)

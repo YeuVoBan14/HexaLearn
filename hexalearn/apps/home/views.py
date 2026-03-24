@@ -6,13 +6,19 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 
-from .models import Level, Source
-from .serializers import LevelSerializer, RegisterSerializer, SourceSerializer, UserProfileSerializer
+from .models import Language, Level, Source
+from .serializers import LanguageSerializer, LevelSerializer, RegisterSerializer, SourceSerializer, UserProfileSerializer
 from .docs import *
 from .pagination import CustomPagination
 
 # Create your views here.
 
+@language_schema()
+class LanguageViewSet(viewsets.ModelViewSet):
+    queryset = Language.objects.all()
+    serializer_class = LanguageSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    pagination_class = CustomPagination
 
 @level_schema()
 class LevelViewSet(viewsets.ModelViewSet):

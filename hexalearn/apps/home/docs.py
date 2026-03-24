@@ -1,6 +1,97 @@
 # apps/home/docs.py
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
-from .serializers import AvatarSerializer, LevelSerializer, SourceSerializer, UserProfileSerializer, RegisterSerializer
+from .serializers import AvatarSerializer, LanguageSerializer, LevelSerializer, SourceSerializer, UserProfileSerializer, RegisterSerializer
+
+
+def language_schema():
+    return extend_schema(
+        tags=["Home"],
+        summary="Manage languages",
+        description="CRUD for Language (Japanese, English...). "
+                    "Only Admin can create, edit, delete. "
+                    "Regular users can only view.",
+        request=LanguageSerializer,
+        responses={
+            200: LanguageSerializer,
+            201: LanguageSerializer,
+            400: OpenApiResponse(
+                description="Invalid data.",
+                examples={
+                    "example": {
+                        "name": ["This field is required."]
+                    }
+                }
+            ),
+            401: OpenApiResponse(
+                description="Not logged in or invalid token.",
+                examples={
+                    "example": {
+                        "detail": "Authentication credentials were not provided."
+                    }
+                }
+            ),
+            403: OpenApiResponse(
+                description="No permission to perform this action. Only Admin is allowed.",
+                examples={
+                    "example": {
+                        "detail": "You do not have permission to perform this action."
+                    }
+                }
+            ),
+            404: OpenApiResponse(
+                description="Language not found.",
+                examples={
+                    "example": {
+                        "detail": "Not found."
+                    }
+                }
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Create new Language",
+                summary="Example of creating Language",
+                description="Code will be automatically generated from name if not provided",
+                value={
+                    "name": "Japanese"
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Language Created Response",
+                summary="Example of created language response",
+                value={
+                    "id": 1,
+                    "name": "Japanese",
+                    "code": "japanese",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-01T00:00:00Z"
+                },
+                response_only=True,
+                status_codes=["201"],
+            ),
+            OpenApiExample(
+                "Update Language Request",
+                summary="Example of updating language",
+                value={
+                    "name": "Japanese (Updated)"
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Language Updated Response",
+                summary="Example of language update response",
+                value={
+                    "id": 1,
+                    "name": "Japanese (Updated)",
+                    "code": "japanese",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-02T00:00:00Z"
+                },
+                response_only=True,
+            ),
+        ]
+    )
 
 
 def level_schema():
@@ -326,7 +417,7 @@ def register_schema():
                     "phone_number": "+1234567890",
                     "address": "123 Main St",
                     "date_of_birth": "1990-01-01",
-                    "native_language": "en"
+                    "native_language": 1
                 },
                 request_only=True,
             ),
