@@ -28,4 +28,5 @@ urlpatterns = [
     path('api/auth/', include('apps.account.urls')),
     path('api/home/', include('apps.home.urls')),
     path('api/deck/', include('apps.deck.urls')),
+    path('api/dict/', include('apps.dict.urls')),
 ]

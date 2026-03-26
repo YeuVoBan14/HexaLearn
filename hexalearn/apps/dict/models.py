@@ -1,7 +1,7 @@
 from django.db import models
 from django.forms import ValidationError
 from apps.home.models import Language, Level, MediaFile
-
+from django.db.models import Max
 # Create your models here.
 
 class PartOfSpeech(models.Model):
@@ -126,7 +126,20 @@ class KanjiWord(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('kanji', 'word')
+        constraints = [
+            models.UniqueConstraint(fields=['word', 'position'], name='unique_word_position')
+        ]
+        
+    def save(self, *args, **kwargs):
+        #auto assign if there is no position
+        if self.position is None:
+            max_position = KanjiWord.objects.filter(
+                word=self.word
+            ).aggregate(max_pos=Max('position'))['max_pos']
+
+            self.position = (max_position or 0) + 1
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.kanji.character} in {self.word.lemma}'
@@ -141,8 +154,14 @@ class Example(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        target = self.word.lemma if self.word else self.kanji.character
-        return f'Example for {target}'
+        if self.word_id and self.word:
+            target = self.word.lemma
+        elif self.kanji_id and self.kanji:
+            target = self.kanji.character
+        else:
+            target = "Unknown"
+
+        return f"{target}"
     
     def clean(self):
         if not self.word and not self.kanji:
