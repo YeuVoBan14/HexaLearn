@@ -3,6 +3,7 @@ from .models import (Kanji, KanjiMeaning, KanjiWord, PartOfSpeech,
                      Word, WordImage, WordMeaning, WordPronunciation, Example,
                      UserPinnedWord, SavedWordList, SavedWordListItem)
 from apps.home.models import MediaFile
+from drf_spectacular.utils import extend_schema_field
 # ---------------------------------------------------------------------------
 # PART OF SPEECH
 # ---------------------------------------------------------------------------
@@ -345,23 +346,27 @@ class UserPinnedWordSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
         
 class SavedWordListItemSerializer(serializers.ModelSerializer):
-    word_id = serializers.IntegerField(source = "pinned_word.word.id", read_only=True)
-    lemma = serializers.CharField(source = "pinned_word.word.lemma", read_only=True)
-    language = serializers.CharField(source = "pinned_word.word.language.name", read_only=True)
-    
+    word_id = serializers.IntegerField(source="word.id", read_only=True)
+    lemma = serializers.CharField(source="word.lemma", read_only=True)
+    language = serializers.CharField(source="word.language.name", read_only=True)
+
     class Meta:
         model = SavedWordListItem
-        fields = ['id', 'pinned_word', 'word_id', 'lemma', 'language', 'position']
+        fields = ['id', 'word_id', 'lemma', 'language', 'position']
         read_only_fields = ['id', 'position']
         
 class SavedWordListSerializer(serializers.ModelSerializer):
     items = SavedWordListItemSerializer(many=True, read_only=True)
-    word_count = serializers.IntegerField(source= 'items.count', read_only=True)
+    word_count = serializers.SerializerMethodField()
     
     class Meta:
         model = SavedWordList
         fields = ['id', 'name', 'description', 'is_public', 'word_count', 'items', 'created_at']
         read_only_fields = ['id', 'created_at', 'word_count']
+        
+    @extend_schema_field(serializers.IntegerField())
+    def get_word_count(self, obj) -> int:
+        return obj.items.count()
         
 class SavedWordListWriteSerializer(serializers.ModelSerializer):
     #For crud savedwordlist
@@ -370,18 +375,14 @@ class SavedWordListWriteSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'is_public']
         read_only_fields = ['id']
 
-class PinWordSerializer(serializers.ModelSerializer):
+class PinWordSerializer(serializers.Serializer):
     # Use to pin word in WordViewSet
     # Able to add to already existed list or create a new list with name
     list_id = serializers.IntegerField(required =False)
-    list_name = serializers.CharField(required = False)
+    list_name = serializers.CharField(required = False, allow_blank=True)
     
     def validate(self, attrs):
         if not attrs.get('list_id') and not attrs.get('list_name', '').strip():
             pass
         # if doesn't have list_id or name, it's will automatically created list with the name "New List"
         return attrs
-    
-class ReorderItemSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    position = serializers.IntegerField(min_value = 1)

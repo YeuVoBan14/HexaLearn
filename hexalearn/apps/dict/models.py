@@ -191,23 +191,23 @@ class SavedWordList(models.Model):
     name = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True, null=True)
     is_public = models.BooleanField(default=False)
-    pinned_words = models.ManyToManyField(
-        UserPinnedWord,
+    words = models.ManyToManyField(
+        Word,
         through="SavedWordListItem",
-        related_name="lists"
+        related_name="saved_word_lists"
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         ordering = ['-created_at']
-        
+
     def __str__(self):
         return f"{self.user.username} / {self.name}"
-    
+
     def save(self, *args, **kwargs):
         if not self.name or not self.name.strip():
-            base  = "New List"
-            name  = base
+            base = "New List"
+            name = base
             count = 1
             while SavedWordList.objects.filter(user=self.user, name=name).exclude(pk=self.pk).exists():
                 name = f"{base} ({count})"
@@ -217,28 +217,20 @@ class SavedWordList(models.Model):
     
 class SavedWordListItem(models.Model):
     list = models.ForeignKey(SavedWordList, on_delete=models.CASCADE, related_name="items")
-    pinned_word = models.ForeignKey(UserPinnedWord, on_delete=models.CASCADE, related_name="list_items")
-    
+    word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name="saved_list_items")
     position = models.PositiveIntegerField(default=0)
-    
+
     class Meta:
-        unique_together = ('list', 'pinned_word')
-        ordering        = ['position']
- 
+        unique_together = ('list', 'word')
+        ordering = ['position']
+
     def __str__(self):
-        return f'{self.list.name} — {self.pinned_word.word.lemma} (pos {self.position})'
-    
-    def clean(self):
-        if self.list.user_id != self.pinned_word.user_id:
-            raise ValidationError("Pinned word must belong to the same user as the list.")
-    
+        return f'{self.list.name} — {self.word.lemma} (pos {self.position})'
+
     def save(self, *args, **kwargs):
-        self.full_clean()
-        
         if not self.pk and self.position == 0:
             last = SavedWordListItem.objects.filter(list=self.list).aggregate(
                 max_pos=models.Max('position')
             )['max_pos']
             self.position = (last or 0) + 1
         super().save(*args, **kwargs)
-    

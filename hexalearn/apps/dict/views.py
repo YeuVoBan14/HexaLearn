@@ -17,8 +17,7 @@ from .serializers import (KanjiSerializer, KanjiSuggestSerializer, KanjiWriteSer
                         ExampleWriteSerializer, ExampleSerializer,
                         KanjiWordWriteSerializer, KanjiWordInlineSerializer,
                         KanjiMeaningWriteSerializer, KanjiMeaningSerializer,
-                        PinWordSerializer, SavedWordListWriteSerializer, SavedWordListSerializer,
-                        ReorderItemSerializer)
+                        PinWordSerializer, SavedWordListWriteSerializer, SavedWordListSerializer,)
 from .docs import *
 from apps.home.models import MediaFile
 from apps.account.storage import delete_media_file, delete_media_files_bulk
@@ -165,7 +164,7 @@ class WordViewSet(viewsets.ModelViewSet):
         
         item, created = SavedWordListItem.objects.get_or_create(
             list = saved_list,
-            pinned_word = pinned_word
+            word = word
         )
         
         return Response({
@@ -193,6 +192,22 @@ class WordViewSet(viewsets.ModelViewSet):
 
         serializer = WordSerializer(words, many=True, context={'request': request})
         return Response(serializer.data)
+    
+    @unpin_word_schema()
+    @action(detail=True, methods=['delete'], url_path='unpin', permission_classes=[IsAuthenticated])
+    def unpin_word(self, request, *args, **kwargs):
+        word = self.get_object()
+
+        try:
+            pinned_word = UserPinnedWord.objects.get(user=request.user, word=word)
+        except UserPinnedWord.DoesNotExist:
+            return Response(
+                {'detail': 'Word is not pinned.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        pinned_word.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 @word_meaning_schema()
 class WordMeaningViewSet(viewsets.ModelViewSet):
     """
@@ -476,57 +491,61 @@ class SavedWordListViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
     
     def get_queryset(self):
+        
         user = self.request.user
         
         if self.action in ['list', 'retrieve']:
             return SavedWordList.objects.filter(
                 Q(user=user) | Q(is_public=True)
-            ).prefetch_related('items__pinned_word__word__language').order_by('-created_at')
+            ).prefetch_related('items__word__language').order_by('-created_at')
         return SavedWordList.objects.filter(user=user)
     
-    def get_serializer(self, *args, **kwargs):
-        if self.action in ['POST', 'PATCH']:
+    def get_serializer_class(self):
+        if self.action in ['create', 'partial_update', 'update']:
             return SavedWordListWriteSerializer
         return SavedWordListSerializer
     
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
         
-    @saved_word_list_schema()
+    @saved_word_list_reorder_schema()
     @action(detail=True, methods=['patch'], url_path='reorder')
     def reorder(self, request, *args, **kwargs):
         """
         PATCH /saved-word-lists/{id}/reorder/
-        Body: [{"id": 1, "position": 1}, {"id": 2, "position": 2}, ...]
+        Body: [1, 3, 5, 2, 4]  — array of SavedWordListItem id theo thứ tự mới
         """
-        saved_list = self.get_object
-        
+        saved_list = self.get_object()
+
         if saved_list.user != request.user:
             return Response(
-                {'detail': 'You dont have permission to reorder this list'},
+                {'detail': 'You do not have permission to reorder this list.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-            
-        serializer = ReorderItemSerializer(data=request.data, many=True)
-        serializer.is_valid(raise_exception=True)
-        items_data = serializer.validated_data
-        
-        items_ids = [i['id'] for i in items_data]
+
+        item_ids = request.data
+        if not isinstance(item_ids, list) or not all(isinstance(i, int) for i in item_ids):
+            return Response(
+                {'detail': 'Expected a list of integer item IDs.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate tất cả id phải thuộc list này
         existing_ids = set(SavedWordListItem.objects.filter(
-            list = saved_list, pk__in=items_ids
+            list=saved_list
         ).values_list('id', flat=True))
-        
-        invalid_ids = set(items_ids) - existing_ids
+
+        invalid_ids = set(item_ids) - existing_ids
         if invalid_ids:
             return Response(
                 {'detail': f'Items not found in this list: {list(invalid_ids)}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-            
-        for item_data in items_data:
+
+        for position, item_id in enumerate(item_ids, start=1):
             SavedWordListItem.objects.filter(
-                pk=item_data['id'], list=saved_list
-            ).update(position=item_data['position'])
+                pk=item_id, list=saved_list
+            ).update(position=position)
 
         saved_list.refresh_from_db()
         return Response(

@@ -9,6 +9,9 @@ from .models import (
     KanjiMeaning,
     KanjiWord,
     Example,
+    SavedWordList,
+    SavedWordListItem,
+    UserPinnedWord
 )
 
 
@@ -228,3 +231,37 @@ class ExampleAdmin(admin.ModelAdmin):
     @admin.display(description="Sentence")
     def short_sentence(self, obj):
         return obj.sentence[:50] + "..." if len(obj.sentence) > 50 else obj.sentence
+    
+class SavedWordListItemInline(admin.TabularInline):
+    model = SavedWordListItem
+    extra = 0
+    autocomplete_fields = ['word']
+    fields = ('word', 'position')
+    ordering = ('position',)
+    show_change_link = True
+
+
+@admin.register(SavedWordList)
+class SavedWordListAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'user', 'is_public', 'word_count', 'created_at')
+    list_filter = ('is_public', 'created_at')
+    search_fields = ('name', 'description', 'user__username')
+    autocomplete_fields = ['user']
+    inlines = [SavedWordListItemInline]
+    ordering = ('-created_at',)
+
+    @admin.display(description='Words')
+    def word_count(self, obj):
+        return obj.items.count()
+
+
+@admin.register(UserPinnedWord)
+class UserPinnedWordAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'word')
+    search_fields = (
+        'user__username',
+        'word__lemma',
+        'word__language__name',
+    )
+    autocomplete_fields = ['user', 'word']
+    ordering = ('-id',)
