@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "apps.deck",
     "apps.dict",
     "apps.account",
+    "apps.reading",
 ]
 
 MIDDLEWARE = [

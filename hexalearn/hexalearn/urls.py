@@ -29,4 +29,5 @@ urlpatterns = [
     path('api/home/', include('apps.home.urls')),
     path('api/deck/', include('apps.deck.urls')),
     path('api/dict/', include('apps.dict.urls')),
+    path('api/reading/', include('apps.reading.urls')),
 ]

@@ -1,3 +1,5 @@
+import redis
+
 from .base import *
 import cloudinary
 DEBUG = True
@@ -22,3 +24,11 @@ cloudinary.config(
     api_key=env('CLOUDINARY_API_KEY'),
     api_secret=env('CLOUDINARY_API_SECRET'),
 )
+
+# Celery
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "Asia/Ho_Chi_Minh"

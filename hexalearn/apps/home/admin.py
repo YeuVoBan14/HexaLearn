@@ -22,7 +22,7 @@ class LevelAdmin(admin.ModelAdmin):
 
 
 class SourceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'code')
+    list_display = ('id', 'name', 'code')
     search_fields = ('name', 'code')
 
 
