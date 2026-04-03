@@ -9,8 +9,10 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .serializers import (TopicSerializer, PassageWriteSerializer, PassageReadSerializer,
-                          ParagraphWriteSerializer, ParagraphReadSerializer, 
+                          ParagraphWriteSerializer, ParagraphReadSerializer,
                           ParagraphTranslationReadSerializer, ParagraphTranslationWriteSerializer)
+from .serializers import _delete_media_file_if_exists
+
 from .models import Topic, Passage, Paragraph, ParagraphTranslation
 from .docs import *
 
@@ -19,17 +21,18 @@ from apps.home.models import Language
 from .tasks import detect_vocabulary_for_paragraph_task, detect_vocabulary_for_passage_task
 # Create your views here.
 
+
 @topic_schema
 class TopicViewSet(viewsets.ModelViewSet):
     serializer_class = TopicSerializer
     permission_classes = [IsAuthenticated, IsAdminUser]
     pagination_class = CustomPagination
-    
+
     def get_permissions(self):
         if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
             return [AllowAny()]
         return [IsAuthenticated(), IsAdminUser()]
-    
+
     def get_queryset(self):
         queryset = Topic.objects.order_by('-created_at')
 
@@ -41,32 +44,35 @@ class TopicViewSet(viewsets.ModelViewSet):
             )
 
         return queryset
-   
-@passage_schema 
+
+
+@passage_schema
 class PassageViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
- 
+
     def get_permissions(self):
         if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
             return [AllowAny()]
         return [IsAuthenticated(), IsAdminUser()]
- 
+
     def get_serializer_class(self):
         if self.request.method in ['POST', 'PUT', 'PATCH']:
             return PassageWriteSerializer
         return PassageReadSerializer
- 
+
     def get_queryset(self):
         filters = Q()
- 
-        search              = self.request.query_params.get('search', '').strip()
-        language            = self.request.query_params.get('language')
-        level               = self.request.query_params.get('level')
-        topic               = self.request.query_params.get('topic')
-        estimated_read_time = self.request.query_params.get('estimated_read_time')
- 
+
+        search = self.request.query_params.get('search', '').strip()
+        language = self.request.query_params.get('language')
+        level = self.request.query_params.get('level')
+        topic = self.request.query_params.get('topic')
+        estimated_read_time = self.request.query_params.get(
+            'estimated_read_time')
+
         if search:
-            filters &= Q(title__icontains=search) | Q(description__icontains=search)
+            filters &= Q(title__icontains=search) | Q(
+                description__icontains=search)
         if language:
             filters &= Q(language__code=language)
         if level:
@@ -75,7 +81,7 @@ class PassageViewSet(viewsets.ModelViewSet):
             filters &= Q(topic__code=topic)
         if estimated_read_time:
             filters &= Q(estimated_read_time__lte=estimated_read_time)
- 
+
         return (
             Passage.objects
             .select_related('language', 'level', 'topic', 'source')
@@ -83,50 +89,74 @@ class PassageViewSet(viewsets.ModelViewSet):
             .filter(filters)
             .order_by('-created_at')
         )
-        
+
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         passage = serializer.save()
         return Response(
             PassageReadSerializer(passage).data,
             status=status.HTTP_201_CREATED,
         )
-        
+
     def update(self, request, *args, **kwargs):
-        partial  = kwargs.pop('partial', False)
+        partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=partial, context={'request': request})
         serializer.is_valid(raise_exception=True)
         passage = serializer.save()
         return Response(PassageReadSerializer(passage).data)
-    
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        passage = self.get_object()
+
+        media_to_delete = []
+        if passage.cover_image:
+            media_to_delete.append(passage.cover_image)
+
+        para_images = [
+            p.image for p in passage.paragraphs.select_related('image').all()
+            if p.image
+        ]
+
+        media_to_delete.extend(para_images)
+
+        passage.delete()
+
+        for media in media_to_delete:
+            _delete_media_file_if_exists(media)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @detect_vocabulary_schema
     @action(detail=True, methods=['post'], url_path='detect_vocabulary',
-        permission_classes=[IsAuthenticated, IsAdminUser])
+            permission_classes=[IsAuthenticated, IsAdminUser])
     def detect_vocabulary(self, request, pk=None):
         """Run vocabulary detection for all paragraphs in the passage. If 'replace' is true, it will replace the existing detected vocabulary."""
         passage = self.get_object()
         replace = request.data.get('replace', False)
- 
+
         from .tasks import detect_vocabulary_for_passage_task
         transaction.on_commit(
-            lambda: detect_vocabulary_for_passage_task.delay(passage.pk, replace=replace)
+            lambda: detect_vocabulary_for_passage_task.delay(
+                passage.pk, replace=replace)
         )
         return Response(
             {'detail': f'Vocabulary detection started for passage #{passage.pk}.'},
             status=status.HTTP_202_ACCEPTED,
         )
-    
-        
+
     @add_translation_schema
     @action(detail=True, methods=['post'], url_path='add_translation',
-        permission_classes=[IsAuthenticated, IsAdminUser])
+            permission_classes=[IsAuthenticated, IsAdminUser])
     @transaction.atomic
     def add_translation(self, request, pk=None):
         """
         Thêm bản dịch cho toàn bộ paragraphs trong passage.
- 
+
         Body:
         {
             "translation_language": <language_id>,
@@ -135,35 +165,36 @@ class PassageViewSet(viewsets.ModelViewSet):
                 {"index": 3, "translation": "..."}
             ]
         }
- 
+
         - Paragraph nào có index trong `translations` → dùng text đó.
         - Paragraph nào không có trong list → placeholder tự động.
         - Nếu translation cho language đó đã tồn tại → update.
         """
-        passage         = self.get_object()
-        language_id     = request.data.get('translation_language')
+        passage = self.get_object()
+        language_id = request.data.get('translation_language')
         translations_in = request.data.get('translations', [])
- 
+
         if not language_id:
             return Response(
                 {'detail': '`translation_language` is required.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
- 
+
         language = get_object_or_404(Language, pk=language_id)
- 
+
         # Build map { index → translation_text }
         translation_map = {
             item['index']: item.get('translation', '').strip()
             for item in translations_in
             if 'index' in item
         }
- 
+
         paragraphs = passage.paragraphs.all()
         updated = created = 0
- 
+
         for paragraph in paragraphs:
-            text = translation_map.get(paragraph.index) or f"No translation in {language.name} yet"
+            text = translation_map.get(
+                paragraph.index) or f"No translation in {language.name} yet"
             _, is_created = ParagraphTranslation.objects.update_or_create(
                 paragraph=paragraph,
                 language=language,
@@ -173,23 +204,23 @@ class PassageViewSet(viewsets.ModelViewSet):
                 created += 1
             else:
                 updated += 1
- 
+
         return Response({
-            'detail'  : f'Done for passage #{passage.pk}.',
-            'created' : created,
-            'updated' : updated,
+            'detail': f'Done for passage #{passage.pk}.',
+            'created': created,
+            'updated': updated,
         })
-       
-    @remove_language_translation_schema 
+
+    @remove_language_translation_schema
     @action(
-        detail=True, methods=['delete'],url_path=r'translations/(?P<language_id>[^/.]+)',
+        detail=True, methods=['delete'], url_path=r'translations/(?P<language_id>[^/.]+)',
         permission_classes=[IsAuthenticated, IsAdminUser],)
     def remove_language_translation(self, request, pk=None, language_id=None):
         """
         Xoá toàn bộ translations của một language khỏi passage.
         Ví dụ: xoá toàn bộ bản dịch tiếng Việt của passage này.
         """
-        passage  = self.get_object()
+        passage = self.get_object()
         language = get_object_or_404(Language, pk=language_id)
 
         deleted_count, _ = ParagraphTranslation.objects.filter(
@@ -198,27 +229,28 @@ class PassageViewSet(viewsets.ModelViewSet):
         ).delete()
 
         return Response({
-            'detail' : f'Removed all {language.name} translations from passage #{passage.pk}.',
+            'detail': f'Removed all {language.name} translations from passage #{passage.pk}.',
             'deleted': deleted_count,
         })
-    
-@paragraph_schema    
+
+
+@paragraph_schema
 class ParagraphViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
-    
+
     def get_permissions(self):
         if self.request.method in ['GET', 'HEAD', 'OPTIONS']:
             return [AllowAny()]
         return [IsAuthenticated(), IsAdminUser()]
-    
+
     def get_serializer_class(self):
         if self.request.method in ['POST', 'PUT', 'PATCH']:
             return ParagraphWriteSerializer
         return ParagraphReadSerializer
-    
+
     def get_passage(self):
         return get_object_or_404(Passage, pk=self.kwargs['passage_pk'])
-    
+
     def get_queryset(self):
         passage = self.get_passage()
         return (
@@ -227,27 +259,29 @@ class ParagraphViewSet(viewsets.ModelViewSet):
             .prefetch_related('translations__language')
             .order_by('index')
         )
-        
+
     def perform_create(self, serializer):
         serializer.save(passage=self.get_passage())
-        
+
     def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(
+            data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response(
             ParagraphReadSerializer(serializer.instance).data,
-            status = status.HTTP_201_CREATED,
+            status=status.HTTP_201_CREATED,
         )
-        
+
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=partial, context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(ParagraphReadSerializer(instance).data)
-    
+
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         """
@@ -257,16 +291,19 @@ class ParagraphViewSet(viewsets.ModelViewSet):
         paragraph = self.get_object()
         passage = paragraph.passage
         deleted_index = paragraph.index
-        
+        old_image = paragraph.image
+
         paragraph.delete()
-        
+
         Paragraph.objects.filter(
             passage=passage,
             index__gt=deleted_index,
         ).update(index=F('index') - 1)
         
+        _delete_media_file_if_exists(old_image)
+
         return Response(status=status.HTTP_204_NO_CONTENT)
-    
+
     @reorder_schema
     @action(detail=True, methods=['post'], url_path='reorder', permission_classes=[IsAuthenticated, IsAdminUser])
     def reorder(self, request, passage_pk=None, pk=None):
@@ -277,42 +314,52 @@ class ParagraphViewSet(viewsets.ModelViewSet):
         -Paragraph 1 move to index 3
         Result: [2,3,1,4,5] following the new content but the index is [1,2,3,4,5]
         """
-        
+
         new_index = int(request.data.get('new_index'))
         paragraph = self.get_object()
         passage = paragraph.passage
         old_index = paragraph.index
-        
+
         if new_index == old_index:
             return Response(ParagraphReadSerializer(paragraph).data)
-        
+
         total = Paragraph.objects.filter(passage=passage).count()
         if not (1 <= new_index <= total):
             return Response({'detail': f'new_index must be 1-{total}'}, status=400)
-        
+
         with transaction.atomic():
             # BƯỚC 1: Dọn chỗ cũ - shift ngược về
+            paragraph.index = 0  # Tạm set index về 0 để tránh xung đột unique constraint
+            paragraph.save()
             if new_index > old_index:
                 # Di chuyển từ old+1 đến new_index xuống 1
-                Paragraph.objects.filter(
-                    passage=passage, 
-                    index__gt=old_index, 
-                    index__lte=new_index
-                ).update(index=F('index') - 1)
+                paragraphs_to_shift = Paragraph.objects.filter(
+                    passage=passage,
+                    index__lte=new_index,
+                    index__gt=old_index
+                ).order_by('index')
+
+                for p in paragraphs_to_shift:
+                    p.index -= 1
+                    p.save()
             else:
-                # Di chuyển từ new_index đến old-1 lên 1  
-                Paragraph.objects.filter(
-                    passage=passage, 
-                    index__gte=new_index, 
-                    index__lt=old_index
-                ).update(index=F('index') + 1)
-            
+                # Di chuyển từ new_index đến old-1 lên 1
+                paragraphs_to_shift = Paragraph.objects.filter(
+                    passage=passage,
+                    index__gte=new_index,
+                    index__lt=old_index,
+                ).order_by('-index')  # 4, 3 — lớn trước
+
+                for p in paragraphs_to_shift:
+                    p.index += 1
+                    p.save()
+
             # BƯỚC 2: Set index mới cho paragraph (KHÔNG set = 0 nữa)
             paragraph.index = new_index
             paragraph.save()
-        
+
         return Response(ParagraphReadSerializer(paragraph).data)
-    
+
     @translations_list_schema
     @action(detail=True, methods=['get'], url_path='translations')
     def translations_list(self, request, passage_pk=None, pk=None):
@@ -321,14 +368,14 @@ class ParagraphViewSet(viewsets.ModelViewSet):
         qs = ParagraphTranslation.objects.filter(
             paragraph=paragraph
         ).select_related('language')
-        
+
         return Response(ParagraphTranslationReadSerializer(qs, many=True).data)
-    
+
     @translation_update_schema
     @action(detail=True, methods=['patch'], url_path=r'translations/(?P<translation_pk>[^/.]+)/update')
     def translation_update(self, request, passage_pk=None, pk=None, translation_pk=None):
         """PATCH — edit a translation."""
-        paragraph   = self.get_object()
+        paragraph = self.get_object()
         translation = get_object_or_404(
             ParagraphTranslation, pk=translation_pk, paragraph=paragraph
         )
@@ -338,19 +385,16 @@ class ParagraphViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(ParagraphTranslationReadSerializer(translation).data)
-    
+
     @translation_delete_schema
     @action(detail=True, methods=['delete'],
             url_path=r'translations/(?P<translation_pk>[^/.]+)',)
     def translation_delete(self, request, passage_pk=None, pk=None, translation_pk=None):
         """Reset a translation to its default value."""
-        paragraph   = self.get_object()
+        paragraph = self.get_object()
         translation = get_object_or_404(
             ParagraphTranslation, pk=translation_pk, paragraph=paragraph
         )
         translation.translation = f"No translation in {translation.language.name} yet"
         translation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
-            
-        
-        

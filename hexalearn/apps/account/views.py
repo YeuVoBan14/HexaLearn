@@ -29,6 +29,7 @@ class MeView(generics.RetrieveAPIView):
 UPLOAD_FOLDER_MAP = {
     'flashcard': 'flashcard',
     'dict'     : 'dict/words',
+    'reading'  : 'reading',
 }
 
 @upload_credential_schema()

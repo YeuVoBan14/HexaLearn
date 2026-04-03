@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from colorfield.fields import ColorField
 import re
 
-from apps.home.models import Source, Level, Language
+from apps.home.models import MediaFile, Source, Level, Language
 # Create your models here.
 
 class Topic(models.Model):
@@ -34,7 +34,10 @@ class Passage(models.Model):
     title = models.CharField(max_length=255)
     language = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
-    cover_image = models.ImageField(upload_to="reading/passage_cover", null=True, blank=True)
+    cover_image = models.ForeignKey(
+            MediaFile, on_delete=models.SET_NULL,
+            null=True, blank=True, related_name='passage_covers'
+        )    
     level = models.ForeignKey(Level, on_delete=models.SET_NULL, null=True, blank=True)
     topic = models.ForeignKey(Topic, on_delete=models.SET_NULL, null=True, blank=True)
     source = models.ForeignKey(Source, on_delete=models.SET_NULL, null=True, blank=True)
@@ -47,15 +50,16 @@ class Passage(models.Model):
 
     @property
     def image_url(self):
-        if self.cover_image:
-            return self.cover_image.url
-        return None
+        return self.cover_image.file_url if self.cover_image else None
     
 class Paragraph(models.Model):
     
     passage = models.ForeignKey(Passage, on_delete=models.CASCADE, related_name="paragraphs")
     index = models.PositiveIntegerField(default=0, blank=True)
-    image = models.ImageField(upload_to="reading/paragraph/", null=True, blank=True)
+    image = models.ForeignKey(
+        MediaFile, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='paragraph_images'
+    )    
     content = models.TextField()
     note = models.TextField(null=True, blank=True)
     vocabulary = models.ManyToManyField(
@@ -82,9 +86,7 @@ class Paragraph(models.Model):
         
     @property
     def image_url(self):
-        if self.image:
-            return self.image.url
-        return None
+        return self.image.file_url if self.image else None
         
 class ParagraphTranslation(models.Model):
     

@@ -69,9 +69,10 @@ def get_tokenizer(language_code: str) -> BaseTokenizer:
 # DETECT
 # ---------------------------------------------------------------------------
 
-def detect_vocabulary(paragraph, replace: bool = False) -> int:
+def detect_vocabulary(paragraph, language_code=None, replace: bool = False) -> int:
     from apps.dict.models import Word
 
+    logger.info("=== detect_vocabulary called for paragraph #%s ===", paragraph.pk)
     if not paragraph.content:
         logger.warning("Paragraph #%s has no content, skipping.", paragraph.pk)
         return 0
@@ -80,17 +81,29 @@ def detect_vocabulary(paragraph, replace: bool = False) -> int:
         paragraph.vocabulary.clear()
 
     # Lấy language_code từ passage
-    language_code = None
-    if paragraph.passage.language:
-        language_code = paragraph.passage.language.code
+    if not language_code:
+        if paragraph.passage and paragraph.passage.language:
+            language_code = paragraph.passage.language.code
+        
+    logger.info(
+        "Paragraph #%s — language_code: %s — content: %s",
+        paragraph.pk, language_code, paragraph.content[:50]
+    )
 
     tokenizer = get_tokenizer(language_code or 'en')
     tokens    = tokenizer.tokenize(paragraph.content)
+    
+    logger.info("Token count: %d | sample tokens: %s", len(tokens), list(tokens)[:10])
 
     if not tokens:
+        logger.warning("No tokens found.")
         return 0
+    
+    total_words_in_db = Word.objects.count()
+    logger.info("Total words in DB: %d", total_words_in_db)
 
     matched_words = Word.objects.filter(lemma__in=tokens)
+    logger.info("Matched words: %s", list(matched_words.values_list('lemma', flat=True)))
     if not matched_words.exists():
         return 0
 
@@ -108,11 +121,14 @@ def detect_vocabulary(paragraph, replace: bool = False) -> int:
 
 
 def detect_vocabulary_for_passage(passage, replace: bool = False) -> dict:
+    
+    lang_code = passage.language.code if passage.language else 'en'
     paragraphs        = passage.paragraphs.all()
     total_words_added = 0
 
     for paragraph in paragraphs:
-        total_words_added += detect_vocabulary(paragraph, replace=replace)
+        # 4. Truyền lang_code vào đây
+        total_words_added += detect_vocabulary(paragraph, language_code=lang_code, replace=replace)
 
     logger.info(
         "Passage #%s: %d paragraph(s), %d word(s) added.",
