@@ -52,7 +52,9 @@ class FolderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = Folder.objects.filter(
             owner=self.request.user
-        ).prefetch_related('decks')
+        ).prefetch_related('decks').annotate(
+            total_decks=Count('decks')
+        )
 
         name = self.request.query_params.get('name')
         if name:
@@ -72,7 +74,9 @@ class FolderViewSet(viewsets.ModelViewSet):
     def overview(self, request):
         folders = Folder.objects.filter(
             owner=request.user
-        ).prefetch_related('decks')
+        ).prefetch_related('decks').annotate(
+            total_decks=Count('decks')
+        )
 
         unorganized_decks = Deck.objects.filter(
             owner=request.user,
@@ -283,7 +287,9 @@ class CardViewSet(viewsets.ModelViewSet):
 def decks_in_progress(request):
     today = timezone.now().date()
 
-    decks = Deck.objects.annotate(
+    decks = Deck.objects.filter(
+        owner=request.user,
+    ).annotate(
         total_cards=Count('cards', distinct=True),
         studied_cards=Count(
             'cards',
@@ -397,6 +403,8 @@ def submit_review(request, card_id):
     if result:
         if state.repetition == 0:
             state.interval_days = 1
+        elif state.repetition == 1: 
+            state.interval_days = 2
         elif state.repetition == 2:
             state.interval_days = 6
         else:

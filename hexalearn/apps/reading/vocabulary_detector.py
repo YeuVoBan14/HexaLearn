@@ -27,18 +27,19 @@ class DefaultTokenizer(BaseTokenizer):
 
 
 class JapaneseTokenizer(BaseTokenizer):
-    """Dùng cho tiếng Nhật — dùng fugashi để tách từ và lấy lemma gốc."""
     def __init__(self):
-        try:
+        self._tagger = None  # ← không khởi tạo ngay
+
+    def _get_tagger(self):
+        if self._tagger is None:
             import fugashi
             self._tagger = fugashi.Tagger()
-        except ImportError:
-            raise ImportError("fugashi is required for Japanese tokenization. Run: pip install fugashi unidic-lite")
+        return self._tagger
 
     def tokenize(self, content: str) -> set:
+        tagger = self._get_tagger()
         tokens = set()
-        for word in self._tagger(content):
-            # Thêm cả dạng xuất hiện lẫn lemma gốc
+        for word in tagger(content):
             if word.surface:
                 tokens.add(word.surface)
             if word.feature.lemma:

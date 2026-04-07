@@ -104,8 +104,7 @@ class UserProfile(models.Model):
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     address = models.CharField(max_length=255, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
-    profile_picture = models.ImageField(
-        upload_to="hexalearn_profile_pics/", blank=True, null=True)
+    profile_picture = models.ForeignKey(MediaFile, on_delete=models.SET_NULL, null=True, blank=True)
     native_language = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True)
     daily_ai_limit = models.PositiveIntegerField(default=20)
     reading_level = models.ForeignKey(
@@ -119,6 +118,4 @@ class UserProfile(models.Model):
 
     @property
     def avatar_url(self):
-        if self.profile_picture:
-            return self.profile_picture.url
-        return None
+        return self.profile_picture.file_url if self.profile_picture else None

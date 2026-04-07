@@ -1,4 +1,4 @@
-from .models import Language, Level, Source, UserProfile
+from .models import Language, Level, MediaFile, Source, UserProfile
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_field
@@ -57,10 +57,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(str)
     def get_image_url(self, obj) -> Optional[str]:
-        request = self.context.get('request')
-        if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
-            return request.build_absolute_uri(obj.profile_picture.url)
-        return None
+        return obj.profile_picture.file_url if obj.profile_picture else None
 
     def validate_username(self, value):
         user = self.context['request'].user
@@ -85,19 +82,28 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         return instance
 
-class AvatarSerializer(serializers.ModelSerializer):
-    image_url = serializers.SerializerMethodField()
+class AvatarUploadSerializer(serializers.Serializer):
+    file_url  = serializers.CharField()
+    file_path = serializers.CharField()
+    file_name = serializers.CharField(max_length=255)
+    mime_type = serializers.CharField(max_length=100)
+    alt_text  = serializers.CharField(required=False, allow_blank=True)
+    file_size = serializers.IntegerField(required=False, allow_null=True)
 
-    class Meta:
-        model = UserProfile
-        fields = ['profile_picture', 'image_url']
-
-    @extend_schema_field(str)
-    def get_image_url(self, obj) -> Optional[str]:
+    def update(self, instance, validated_data):
         request = self.context.get('request')
-        if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
-            return request.build_absolute_uri(obj.profile_picture.url)
-        return None
+        new_media = MediaFile.objects.create(
+            file_url  = validated_data['file_url'],
+            file_path = validated_data['file_path'],
+            file_name = validated_data['file_name'],
+            mime_type = validated_data['mime_type'],
+            alt_text  = validated_data.get('alt_text', ''),
+            file_size = validated_data.get('file_size'),
+            upload_by = request.user if request else None,
+        )
+        instance.profile_picture = new_media
+        instance.save()
+        return instance
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)

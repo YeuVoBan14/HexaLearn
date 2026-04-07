@@ -22,6 +22,10 @@ from .docs import *
 from apps.home.models import MediaFile
 from apps.account.storage import delete_media_file, delete_media_files_bulk
 
+from apps.deck.models import Deck, Card
+from apps.home.models import Source
+from apps.deck.serializers import DeckDetailSerializer
+
 # Create your views here.
 @part_of_speech_schema()
 class PartOfSpeechViewSet(viewsets.ModelViewSet):
@@ -489,6 +493,8 @@ class KanjiExampleViewSet(viewsets.ModelViewSet):
 @saved_word_list_schema()
 class SavedWordListViewSet(viewsets.ModelViewSet):
     pagination_class = CustomPagination
+    permission_classes = [IsAuthenticated]
+    lookup_value_regex = r'\d+'  
     
     def get_queryset(self):
         
@@ -575,5 +581,92 @@ class SavedWordListViewSet(viewsets.ModelViewSet):
 
         item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @saved_word_list_create_deck_schema()
+    @action(detail=True, methods=['post'], url_path='create-deck')
+    def create_deck(self, request, pk=None):
+        """
+        Tạo Deck từ SavedWordList.
+        Body: {
+            "title"          : "...",       (optional, mặc định dùng tên list)
+            "definition_type": "short"      (optional, "short" | "full", mặc định "short")
+        }
+        meaning_language tự lấy từ native_language của UserProfile.
+        """
+        from apps.deck.models import Deck, Card
+        from apps.home.models import Source
+
+        word_list = self.get_object()
+        items     = word_list.items.select_related('word').prefetch_related(
+            'word__meanings__language'
+        ).all()
+
+        if not items.exists():
+            return Response(
+                {'detail': 'Cannot create deck from an empty list.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Lấy native_language từ UserProfile
+        lang = 'vi'  # fallback
+        try:
+            native = request.user.userprofile.native_language
+            if native:
+                lang = native.code
+        except Exception:
+            pass
+
+        definition_type = request.data.get('definition_type', 'short')
+        if definition_type not in ('short', 'full'):
+            return Response(
+                {'detail': '`definition_type` must be "short" or "full".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        title  = request.data.get('title', '').strip() or word_list.name
+        source = Source.objects.filter(code__iexact='user').first()
+
+        deck = Deck.objects.create(
+            owner       = request.user,
+            title       = title,
+            description = f"Created from saved word list: {word_list.name}",
+            source      = source,
+            is_public   = False,
+        )
+
+        cards = []
+        for item in items:
+            word    = item.word
+            meaning = word.meanings.filter(language__code=lang).first()
+
+            if meaning:
+                back = (
+                    meaning.full_definition
+                    if definition_type == 'full' and meaning.full_definition
+                    else meaning.short_definition
+                )
+            else:
+                back = word.lemma  # fallback nếu không có meaning
+
+            cards.append(Card(
+                deck       = deck,
+                front_text = word.lemma,
+                back_text  = back,
+            ))
+
+        Card.objects.bulk_create(cards)
+
+        from apps.deck.serializers import DeckDetailSerializer
+        return Response(
+            DeckDetailSerializer(deck, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+        
+        
+        
+            
+
+        
+        
         
         

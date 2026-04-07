@@ -1,6 +1,6 @@
 # apps/home/docs.py
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
-from .serializers import AvatarSerializer, LanguageSerializer, LevelSerializer, SourceSerializer, UserProfileSerializer, RegisterSerializer
+from .serializers import AvatarUploadSerializer, LanguageSerializer, LevelSerializer, SourceSerializer, UserProfileSerializer, RegisterSerializer
 
 
 def language_schema():
@@ -247,10 +247,10 @@ def avatar_upload_schema():
         summary="Upload or update profile avatar",
         description="Upload a new profile picture for the authenticated user. The previous image will be deleted automatically.",
         request={
-            "multipart/form-data": AvatarSerializer
+            "multipart/form-data": AvatarUploadSerializer
         },
         responses={
-            200: AvatarSerializer,
+            200: AvatarUploadSerializer,
             400: OpenApiResponse(
                 description="Invalid file.",
                 examples={

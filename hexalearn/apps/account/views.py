@@ -30,6 +30,7 @@ UPLOAD_FOLDER_MAP = {
     'flashcard': 'flashcard',
     'dict'     : 'dict/words',
     'reading'  : 'reading',
+    'avatar'   : 'avatars', 
 }
 
 @upload_credential_schema()

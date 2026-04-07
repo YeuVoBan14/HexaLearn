@@ -23,6 +23,12 @@ KANJI_PK_PARAM = OpenApiParameter(
     description='Kanji ID'
 )
 
+SAVED_WORD_LIST_ID_PARAM = OpenApiParameter(
+    name='id',
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.PATH,
+    description='Saved word list ID',
+)
 
 # ---------------------------------------------------------------------------
 # PART OF SPEECH
@@ -761,53 +767,38 @@ def unpin_word_schema():
 
 
 def saved_word_list_schema():
-    return extend_schema(
-        tags=["Dictionary - Word"],
-        summary="Manage saved word lists",
-        description=(
-            "CRUD operations for SavedWordList.\n\n"
-            "Users can only modify their own lists.\n"
-            "Public lists can be viewed by others.\n\n"
-
-            "Each list contains **words** (not pinned_word anymore)."
+    return extend_schema_view(
+        # Standard actions
+        list=extend_schema(
+            tags=['Dictionary - Word'],
+            summary='List saved word lists',
+            description='Return all saved word lists of the current user.',
         ),
-        parameters=[
-            OpenApiParameter('id', int, OpenApiParameter.PATH),
-        ],
-        request=SavedWordListWriteSerializer,
-        responses={
-            200: SavedWordListSerializer,
-            201: SavedWordListSerializer,
-        },
-        examples=[
-            OpenApiExample(
-                "Response",
-                value={
-                    "id": 1,
-                    "name": "N5 words",
-                    "description": "",
-                    "is_public": False,
-                    "word_count": 2,
-                    "items": [
-                        {
-                            "id": 1,
-                            "word_id": 42,
-                            "lemma": "食べる",
-                            "language": "Japanese",
-                            "position": 1
-                        },
-                        {
-                            "id": 2,
-                            "word_id": 18,
-                            "lemma": "飲む",
-                            "language": "Japanese",
-                            "position": 2
-                        }
-                    ],
-                    "created_at": "2026-03-26T06:00:00Z",
-                }
-            ),
-        ],
+        retrieve=extend_schema(
+            tags=['Dictionary - Word'],
+            summary='Retrieve a saved word list',
+            parameters=[SAVED_WORD_LIST_ID_PARAM],
+            responses={200: SavedWordListSerializer},
+        ),
+        create=extend_schema(
+            tags=['Dictionary - Word'],
+            summary='Create a saved word list',
+            description='Create a new saved word list. If name is empty, auto-generated as "New List".',
+            request=SavedWordListWriteSerializer,
+            responses={201: SavedWordListSerializer},
+        ),
+        partial_update=extend_schema(
+            tags=['Dictionary - Word'],
+            summary='Update a saved word list',
+            parameters=[SAVED_WORD_LIST_ID_PARAM],
+            request=SavedWordListWriteSerializer,
+            responses={200: SavedWordListSerializer},
+        ),
+        destroy=extend_schema(
+            tags=['Dictionary - Word'],
+            summary='Delete a saved word list',
+            parameters=[SAVED_WORD_LIST_ID_PARAM],
+        ),
     )
 
 
@@ -859,5 +850,137 @@ def saved_word_list_remove_item_schema():
             204: OpenApiResponse(description="Item removed successfully."),
             403: OpenApiResponse(description="Permission denied"),
             404: OpenApiResponse(description="Item not found"),
+        },
+    )
+    
+def saved_word_list_create_deck_schema():
+    return extend_schema(
+        tags=["Dictionary - Word"],
+        summary="Create a deck from a saved word list",
+        parameters=[
+            OpenApiParameter(
+                name="id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description="Saved word list ID",
+            ),
+        ],
+        description="""
+Create a flashcard deck from a saved word list.
+
+**Behavior:**
+- Each word in the list becomes one card
+- `front_text` = word lemma
+- `back_text` = meaning (based on user's native language)
+
+**Meaning selection:**
+- Automatically uses `request.user.userprofile.native_language`
+- If no meaning found → fallback to `word.lemma`
+
+**Definition type:**
+- `short` → use `short_definition`
+- `full` → use `full_definition` (if available, otherwise fallback to short)
+
+**Notes:**
+- Deck is always created as `is_public = False`
+- Source is automatically set to `"user"`
+- If list is empty → returns `400`
+""",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Custom deck title. If not provided, uses list name."
+                    },
+                    "definition_type": {
+                        "type": "string",
+                        "enum": ["short", "full"],
+                        "default": "short",
+                        "description": "Choose which definition to use for card back."
+                    },
+                },
+                "examples": {
+                    "default": {
+                        "summary": "Create deck with default settings",
+                        "value": {}
+                    },
+                    "custom_title": {
+                        "summary": "Custom title",
+                        "value": {
+                            "title": "My JLPT N5 Deck"
+                        }
+                    },
+                    "full_definition": {
+                        "summary": "Use full definitions",
+                        "value": {
+                            "definition_type": "full"
+                        }
+                    },
+                    "full_custom": {
+                        "summary": "Custom everything",
+                        "value": {
+                            "title": "N4 Study Deck",
+                            "definition_type": "full"
+                        }
+                    }
+                }
+            }
+        },
+        responses={
+            201: OpenApiResponse(
+                description="Deck created successfully",
+                examples=[
+                    OpenApiExample(
+                        "Success",
+                        value={
+                            "id": 10,
+                            "title": "My JLPT N5 Deck",
+                            "description": "Created from saved word list: N5 words",
+                            "total_cards": 20,
+                            "is_public": False,
+                            "created_at": "2026-04-04T10:00:00Z",
+                            "cards": [
+                                {
+                                    "id": 1,
+                                    "front_text": "食べる",
+                                    "back_text": "ăn"
+                                },
+                                {
+                                    "id": 2,
+                                    "front_text": "飲む",
+                                    "back_text": "uống"
+                                }
+                            ]
+                        },
+                        response_only=True,
+                        status_codes=["201"],
+                    )
+                ],
+            ),
+            400: OpenApiResponse(
+                description="Invalid request",
+                examples=[
+                    OpenApiExample(
+                        "Empty list",
+                        value={"detail": "Cannot create deck from an empty list."},
+                        response_only=True,
+                        status_codes=["400"],
+                    ),
+                    OpenApiExample(
+                        "Invalid definition_type",
+                        value={"detail": '`definition_type` must be "short" or "full".'},
+                        response_only=True,
+                        status_codes=["400"],
+                    ),
+                ],
+            ),
+            403: OpenApiResponse(
+                description="Permission denied"
+            ),
+            404: OpenApiResponse(
+                description="Saved word list not found"
+            ),
         },
     )

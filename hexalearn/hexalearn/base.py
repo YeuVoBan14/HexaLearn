@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / '.env')
+environ.Env.read_env(BASE_DIR / '.env', overwrite=False)
 SECRET_KEY = env('SECRET_KEY', default='unsafe-secret-key')
 # SECURITY WARNING: don't run with debug turned on in production!
 
@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'corsheaders',
     "colorfield",
     "drf_spectacular",
+    'rest_framework_simplejwt.token_blacklist',
     
     # local apps
     "apps.home",

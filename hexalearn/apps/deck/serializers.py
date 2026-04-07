@@ -11,7 +11,7 @@ class DeckInFolderSerializer(serializers.ModelSerializer):
 
 class FolderSerializer(serializers.ModelSerializer):
     decks = DeckInFolderSerializer(many=True, read_only=True)
-    total_decks = serializers.IntegerField(source='decks.count', read_only=True)
+    total_decks = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Folder

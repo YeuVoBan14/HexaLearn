@@ -310,7 +310,21 @@ class WordSuggestSerializer(serializers.ModelSerializer):
         meanings = getattr(obj, 'filtered_meanings', None)
         if meanings:
             return meanings[0].short_definition
-        lang = self.context['request'].query_params.get('language', 'vi')
+
+        request = self.context.get('request')
+
+        # Ưu tiên native_language của user nếu đã đăng nhập
+        lang = 'vi'  # fallback default
+        if request and request.user.is_authenticated:
+            try:
+                native = request.user.userprofile.native_language
+                if native:
+                    lang = native.code
+            except Exception:
+                pass
+        else:
+            lang = request.query_params.get('language', 'vi') if request else 'vi'
+
         meaning = obj.meanings.filter(language__code=lang).first()
         return meaning.short_definition if meaning else None
 
@@ -328,7 +342,18 @@ class KanjiSuggestSerializer(serializers.ModelSerializer):
         meanings = getattr(obj, 'filtered_meanings', None)
         if meanings:
             return meanings[0].meaning
-        lang    = self.context['request'].query_params.get('language', 'vi')
+        
+        request = self.context.get('request')
+        lang = 'vi'  # fallback default
+        if request and request.user.is_authenticated:
+            try:
+                native = request.user.userprofile.native_language
+                if native:
+                    lang = native.code
+            except Exception:
+                pass
+        else:
+            lang = request.query_params.get('language', 'vi') if request else 'vi'
         meaning = obj.meanings.filter(language__code=lang).first()
         return meaning.meaning if meaning else None
 

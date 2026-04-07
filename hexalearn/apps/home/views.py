@@ -7,9 +7,13 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 
 from .models import Language, Level, Source
-from .serializers import LanguageSerializer, LevelSerializer, RegisterSerializer, SourceSerializer, UserProfileSerializer
+from .serializers import AvatarUploadSerializer, LanguageSerializer, LevelSerializer, RegisterSerializer, SourceSerializer, UserProfileSerializer
 from .docs import *
 from .pagination import CustomPagination
+from apps.account.storage import delete_media_file
+
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
 # Create your views here.
 
@@ -59,30 +63,35 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
 
 @avatar_upload_schema()
-class AvatarUploadView(generics.CreateAPIView):
+class AvatarUploadView(generics.UpdateAPIView):
     permission_classes = [IsAuthenticated]
-    serializer_class = AvatarSerializer
-    parser_classes = [MultiPartParser, FormParser]
+    serializer_class   = AvatarUploadSerializer
 
     def get_object(self):
         return self.request.user.profile
 
     def post(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.profile_picture:
-            print("Deleting old profile picture:",
-                  instance.profile_picture.url)
-            instance.profile_picture.delete(save=False)
+        instance    = self.get_object()
+        old_media   = instance.profile_picture  # giữ ref trước khi đổi
 
         serializer = self.get_serializer(
-            instance,
-            data=request.data,
-            partial=True,
-            context={'request': request}
+            instance, data=request.data,
+            context={'request': request},
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+
+        # Xóa MediaFile cũ trên cloud + DB sau khi gán mới xong
+        if old_media:
+            try:
+                delete_media_file(old_media)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Failed to delete old avatar: %s", e
+                )
+
+        return Response({'image_url': instance.profile_picture.file_url})
 
 
 @register_schema()
@@ -99,6 +108,15 @@ class DeleteAccountView(generics.GenericAPIView):
         profile = request.user.profile
         profile.is_deleted = True
         profile.save()
+        
+        refresh_token = request.data.get('refresh')
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except TokenError:
+                pass
+            
         return Response(
             {"detail": "Account has been deleted."},
             status=status.HTTP_200_OK
