@@ -379,3 +379,33 @@ class UserReadingProgressWriteSerializer(serializers.ModelSerializer):
                 attrs['status'] = 'started'
 
         return attrs
+    
+# ----------------------------------------------------------------------------
+# AI REQUEST SERIALIZERS
+# ----------------------------------------------------------------------------
+
+class ReadingAIRequestSerializer(serializers.Serializer):
+    #Serializer for AI requests, explain/summarize/vocabulary
+    MODE_CHOICES = ['explain', 'summarize', 'vocabulary']
+    
+    mode = serializers.ChoiceField(
+        choices=MODE_CHOICES,
+        default='explain',
+        help_text="Mode of AI request: explain, summarize, or vocabulary"
+        )
+    
+    selected_text = serializers.CharField(
+        required=False, allow_blank=True,
+        allow_null=True,
+        help_text="The specific text the user wants explained. Optional for summarize modes."
+    )
+    
+    def validate(self, attrs):
+        mode = attrs.get('mode')
+        selected_text = attrs.get('selected_text', '').strip()
+        
+        if mode == 'explain' and not selected_text:
+            raise serializers.ValidationError({
+                'selected_text': '`selected_text` is required for explain mode.'
+            })
+        return attrs

@@ -7,10 +7,15 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
+from django.http import StreamingHttpResponse
+
+
+from .ai_client import stream_gemini_response
 
 from .serializers import (ReadingNoteReadSerializer, ReadingNoteWriteSerializer, TopicSerializer, PassageWriteSerializer, PassageReadSerializer,
                           ParagraphWriteSerializer, ParagraphReadSerializer,
-                          ParagraphTranslationReadSerializer, ParagraphTranslationWriteSerializer, UserReadingProgressReadSerializer, UserReadingProgressWriteSerializer)
+                          ParagraphTranslationReadSerializer, ParagraphTranslationWriteSerializer, UserReadingProgressReadSerializer, UserReadingProgressWriteSerializer,
+                          ReadingAIRequestSerializer)
 from .serializers import _delete_media_file_if_exists
 
 from .models import ReadingNote, Topic, Passage, Paragraph, ParagraphTranslation, UserReadingProgress
@@ -19,6 +24,9 @@ from .docs import *
 from apps.home.pagination import CustomPagination
 from apps.home.models import Language
 from .tasks import detect_vocabulary_for_paragraph_task, detect_vocabulary_for_passage_task
+
+import logging
+from .ai_prompts import build_explain_prompt, build_summarize_prompt, build_vocabulary_prompt
 # Create your views here.
 
 
@@ -407,7 +415,106 @@ class ParagraphViewSet(viewsets.ModelViewSet):
         translation.translation = f"No translation in {translation.language.name} yet"
         translation.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=True, methods=['post'], url_path='ai', permission_classes=[IsAuthenticated],)
+    def ai_explain(self, request, passage_pk=None, pk=None):
+        """
+        POST /passages/{pid}/paragraphs/{id}/ai/
+    
+        Stream AI response về client theo chuẩn SSE (Server-Sent Events).
+    
+        Body:
+        {
+            "mode": "explain" | "summarize" | "vocabulary",
+            "selected_text": "食べます"   ← optional
+        }
+    
+        Response: text/event-stream
+            data: chunk1
+            data: chunk2
+            ...
+            data: [DONE]
+        """
+        # ── Check user profile ─────────────────────────────────────────────
+        try:
+            profile = request.user.profile
+        except Exception:
+            return Response(
+            {'detail': 'User profile not found.'}, status=status.HTTP_400_BAD_REQUEST,)
+            
+        if profile.daily_ai_limit <= 0:
+            return Response(
+                {
+                    'detail': 'Daily AI limit reached. Resets at midnight UTC.',
+                    'daily_ai_limit': 0,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            
+        # ── Validate request body ─────────────────────────────────────────────
+        serializer = ReadingAIRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        mode          = serializer.validated_data['mode']
+        selected_text = serializer.validated_data.get('selected_text', '').strip()
+        
+        # ── Get paragraph and validate selected text ─────────────────────────────────────────────
+        paragraph = self.get_object()
+        if selected_text and selected_text not in paragraph.content:
+            return Response(
+                {'detail': 'selected_text must be a substring of the paragraph content.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+            
+        # ── Build prompt based on mode ─────────────────────────────────────────────
+        if mode == 'explain':
+            user_prompt = build_explain_prompt(
+                paragraph, selected_text, request.user
+            )
+        elif mode == 'summarize':
+            user_prompt = build_summarize_prompt(
+                paragraph, request.user
+            )
+        else:  # vocabulary
+            user_prompt = build_vocabulary_prompt(
+                paragraph, selected_text, request.user
+            )
+            
+        # ── Stream response from Gemini API ─────────────────────────────────────────────
+        def generate():
+            """
+            Generator cho StreamingHttpResponse.
+            Format SSE: mỗi chunk là "data: <text>\n\n"
+            Client parse bằng cách split theo "\n\n" và remove "data: " prefix.
+            """
+            try:
+                for chunk in stream_gemini_response(user_prompt):
+                    safe_chunk = chunk.replace('\n', '\\n')
+                    yield f"data: {safe_chunk}\n\n"
+                    
+                yield "data: [DONE]\n\n"
+                
+                profile.daily_ai_limit = max(0, profile.daily_ai_limit - 1)
+                profile.save(update_fields=['daily_ai_limit'])
+                
+            except Exception as e:
 
+                logging.getLogger(__name__).error("AI stream error: %s", e)
+                yield f"data: [ERROR] {str(e)}\n\n"
+        response = StreamingHttpResponse(
+            generate(),
+            content_type = 'text/event-stream',
+        )
+        
+        response['Cache-Control']       = 'no-cache'
+        response['X-Accel-Buffering']   = 'no'  # tắt nginx buffering
+        response['Access-Control-Allow-Origin'] = '*'
+    
+        # Trả về remaining limit trong header để client biết
+        response['X-AI-Limit-Remaining'] = str(profile.daily_ai_limit - 1)
+    
+        return response
+                    
 @reading_note_schema
 class ReadingNoteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
