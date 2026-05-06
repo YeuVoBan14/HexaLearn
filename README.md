@@ -18,7 +18,7 @@ A full-stack Japanese language learning platform built with Django REST Framewor
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -122,7 +122,7 @@ Services:
 
 ---
 
-## 🤖 AI Integration
+## AI Integration
 
 ### Deck Generator
 Generates a complete flashcard deck from a single seed word.
